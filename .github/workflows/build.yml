@@ -1,0 +1,80 @@
+
+name: Build Call History APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Create Android project
+        run: flutter create --org com.deepinnovations --project-name call_history --platforms=android .
+
+      - name: Copy application files
+        run: |
+          cp app_src/pubspec.yaml pubspec.yaml
+          cp app_src/lib/main.dart lib/main.dart
+          cp app_src/android/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
+          mkdir -p android/app/src/main/kotlin/com/deepinnovations/call_history
+          cp app_src/android/kotlin/*.kt android/app/src/main/kotlin/com/deepinnovations/call_history/
+
+      - name: Add Start.io SDK
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          p = Path("android/app/build.gradle.kts")
+          if not p.exists():
+              p = Path("android/app/build.gradle")
+
+          s = p.read_text()
+
+          if "com.startapp:inapp-sdk" not in s:
+              if p.suffix == ".kts":
+                  dep = '    implementation("com.startapp:inapp-sdk:5.3.2")\n'
+              else:
+                  dep = "    implementation 'com.startapp:inapp-sdk:5.3.2'\n"
+
+              m = re.search(r'dependencies\s*\{', s)
+              if not m:
+                  raise SystemExit("Dependencies block not found")
+
+              s = s[:m.end()] + "\n" + dep + s[m.end():]
+              p.write_text(s)
+
+          print("Start.io dependency configured")
+
+          PY
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Build APK
+        run: flutter build apk --release
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Call-History-APK
+          path: build/app/outputs/flutter-apk/app-release.apk
